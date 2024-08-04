@@ -14,7 +14,6 @@ import (
 
 type Node struct {
 	state *statemanager.Manager
-	// todo: implement state management and add it into this entity as part of state
 }
 
 func (s *Node) AppendEntriesHandler(w http.ResponseWriter, r *http.Request) {
@@ -73,8 +72,9 @@ func NewNodeServer() *http.Server {
 		ReadTimeout:  15 * time.Second,
 	}
 
+	server.state.Start()
 	srv.RegisterOnShutdown(func() {
-		// TODO:
+		server.state.CloseGracefully()
 	})
 
 	return srv
