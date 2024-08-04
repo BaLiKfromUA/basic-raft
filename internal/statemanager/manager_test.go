@@ -77,10 +77,9 @@ func TestFollowerDoesntGrantVoteIfAlreadyVoted(t *testing.T) {
 
 func TestFollowerDoesntGrantVoteIfNewTermIsOutdated(t *testing.T) {
 	// Given
-	oldLeaderId := state.CandidateId(1)
 	manager := NewManager()
 	manager.state.SetCurrentStatus(state.FOLLOWER)
-	manager.state.SetVotedFor(&oldLeaderId)
+	manager.state.SetVotedFor(nil)
 	manager.state.SetCurrentTerm(state.Term(2))
 
 	newTerm := manager.state.GetCurrentTerm() - 1 // previous term
@@ -96,6 +95,6 @@ func TestFollowerDoesntGrantVoteIfNewTermIsOutdated(t *testing.T) {
 
 	// check state
 	require.NotEqual(t, manager.state.GetCurrentTerm(), newTerm)
-	require.Equal(t, manager.state.GetVotedFor(), &oldLeaderId)
+	require.Nil(t, manager.state.GetVotedFor())
 	require.Equal(t, manager.state.GetCurrentStatus(), state.FOLLOWER)
 }

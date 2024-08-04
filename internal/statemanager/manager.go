@@ -36,12 +36,15 @@ func (m *Manager) GrantVote(proposedTerm state.Term, candidateId state.Candidate
 		m.becomeFollower(proposedTerm)
 	}
 
-	acceptedVote := m.state.GetVotedFor() == nil || *m.state.GetVotedFor() == candidateId
-	if proposedTerm == m.state.GetCurrentTerm() && acceptedVote {
+	var acceptedVote bool
+	candidateIsValid := m.state.GetVotedFor() == nil || *m.state.GetVotedFor() == candidateId
+	if proposedTerm == m.state.GetCurrentTerm() && candidateIsValid {
 		log.Printf("[current term: %v] Give a vote for %v", m.state.GetCurrentTerm(), candidateId)
+		acceptedVote = true
 		m.state.SetVotedFor(&candidateId)
 		// todo: election timer
 	} else {
+		acceptedVote = false
 		log.Printf("[current term: %v] Rejected candidate proposal of %v", m.state.GetCurrentTerm(), candidateId)
 	}
 
