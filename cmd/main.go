@@ -1,7 +1,12 @@
 package main
 
-import "fmt"
+import (
+	"basic-raft/internal/server"
+	"log"
+)
 
 func main() {
-	fmt.Println("Hello World")
+	srv := server.NewNodeServer()
+	log.Printf("Start serving HTTP at %s", srv.Addr)
+	log.Fatal(srv.ListenAndServe())
 }

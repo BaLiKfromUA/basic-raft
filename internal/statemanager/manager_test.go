@@ -8,7 +8,7 @@ import (
 
 func TestLeaderBecomesFollowerWhenReceivesVoteWithBiggerTerm(t *testing.T) {
 	// GIVEN
-	manager := NewManager()
+	manager := NewManager(42)
 	defer manager.CloseGracefully()
 
 	currentNodeId := state.CandidateId(1)
@@ -33,7 +33,7 @@ func TestLeaderBecomesFollowerWhenReceivesVoteWithBiggerTerm(t *testing.T) {
 
 func TestFollowerGrantsVoteIfNoVotedFor(t *testing.T) {
 	// GIVEN
-	manager := NewManager()
+	manager := NewManager(42)
 	defer manager.CloseGracefully()
 
 	manager.state.SetCurrentStatus(state.FOLLOWER)
@@ -57,7 +57,7 @@ func TestFollowerGrantsVoteIfNoVotedFor(t *testing.T) {
 
 func TestFollowerDoesntGrantVoteIfAlreadyVoted(t *testing.T) {
 	// Given
-	manager := NewManager()
+	manager := NewManager(42)
 	defer manager.CloseGracefully()
 
 	oldLeaderId := state.CandidateId(1)
@@ -83,7 +83,7 @@ func TestFollowerDoesntGrantVoteIfAlreadyVoted(t *testing.T) {
 
 func TestFollowerDoesntGrantVoteIfNewTermIsOutdated(t *testing.T) {
 	// Given
-	manager := NewManager()
+	manager := NewManager(42)
 	defer manager.CloseGracefully()
 
 	manager.state.SetCurrentStatus(state.FOLLOWER)
@@ -109,8 +109,8 @@ func TestFollowerDoesntGrantVoteIfNewTermIsOutdated(t *testing.T) {
 
 func TestFollowerStartsElectionIfTimeoutExceeded(t *testing.T) {
 	// GIVEN
-	t.Setenv("ELECTION_TIMEOUT", "10")
-	manager := NewManager()
+	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "10")
+	manager := NewManager(42)
 
 	initialTerm := state.Term(0)
 
@@ -130,8 +130,8 @@ func TestFollowerStartsElectionIfTimeoutExceeded(t *testing.T) {
 
 func TestNodeDoesntStartsElectionIfLeader(t *testing.T) {
 	// GIVEN
-	t.Setenv("ELECTION_TIMEOUT", "10")
-	manager := NewManager()
+	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "10")
+	manager := NewManager(42)
 	initialTerm := state.Term(0)
 
 	manager.state.SetCurrentStatus(state.LEADER)

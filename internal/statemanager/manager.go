@@ -19,8 +19,8 @@ type Manager struct {
 	lastElectionTime time.Time
 }
 
-func NewManager() *Manager {
-	return &Manager{mu: &sync.Mutex{}, routineGroup: &sync.WaitGroup{}, state: state.NewState(), id: 42, lastElectionTime: time.Now()}
+func NewManager(id state.CandidateId) *Manager {
+	return &Manager{mu: &sync.Mutex{}, routineGroup: &sync.WaitGroup{}, state: state.NewState(), id: id, lastElectionTime: time.Now()}
 }
 
 func (m *Manager) Start() {
@@ -32,7 +32,7 @@ func (m *Manager) Start() {
 
 func (m *Manager) getRandomElectionTimeout() time.Duration {
 	electionTimeout := 150 // default lower bound recommended by paper
-	electionTimeoutStr, ok := os.LookupEnv("ELECTION_TIMEOUT")
+	electionTimeoutStr, ok := os.LookupEnv("ELECTION_TIMEOUT_MILLISECONDS")
 	if ok {
 		electionTimeout, _ = strconv.Atoi(electionTimeoutStr)
 	}

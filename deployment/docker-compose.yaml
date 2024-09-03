@@ -1,0 +1,40 @@
+version: '4,7'
+
+x-env: &env
+  environment:
+    NODES_URLS: "http://node1:8000,http://node2:8000,http://node3:8000"
+    NODE_PORT: "8000"
+    REQUEST_TIMEOUT_MILLISECONDS: "100"
+    ELECTION_TIMEOUT_MILLISECONDS: "150"
+
+services:
+  node1:
+    build: &build-common
+      context: ../
+      dockerfile: build/Dockerfile
+    networks:
+      - isolated_network
+    environment:
+      <<: *env
+      NODE_INDEX: "0"
+
+  node2:
+    <<: *build-common
+    networks:
+      - isolated_network
+    environment:
+      <<: *env
+      NODE_INDEX: "1"
+
+  node3:
+    <<: *build-common
+    networks:
+      - isolated_network
+    environment:
+      <<: *env
+      NODE_INDEX: "2"
+
+
+networks:
+  isolated_network:
+    driver: bridge

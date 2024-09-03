@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -52,8 +54,14 @@ func createRouter(handler *Node) *mux.Router {
 }
 
 func NewNodeServer() *http.Server {
+	idStr, ok := os.LookupEnv("NODE_INDEX")
+	if !ok {
+		log.Fatalf("node id is not set! Use `NODE_INDEX` env variable")
+	}
+
+	id, _ := strconv.Atoi(idStr)
 	server := &Node{
-		state: statemanager.NewManager(),
+		state: statemanager.NewManager(state.CandidateId(id)),
 	}
 
 	port, ok := os.LookupEnv("NODE_PORT")
