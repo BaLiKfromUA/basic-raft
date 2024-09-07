@@ -13,7 +13,7 @@ type NodeClientMock struct {
 	term        *state.Term
 }
 
-func (c *NodeClientMock) RequestVote(_ state.CandidateId, state state.State) (bool, state.Term, error) {
+func (c *NodeClientMock) RequestVote(_ state.NodeId, state state.State) (bool, state.Term, error) {
 	termToReturn := state.GetCurrentTerm()
 	if c.term != nil {
 		termToReturn = *c.term
@@ -22,7 +22,7 @@ func (c *NodeClientMock) RequestVote(_ state.CandidateId, state state.State) (bo
 	return c.returnValue, termToReturn, nil
 }
 
-func (c *NodeClientMock) AppendEntries(_ state.CandidateId, state state.State) (bool, state.Term, error) {
+func (c *NodeClientMock) AppendEntries(_ state.NodeId, state state.State) (bool, state.Term, error) {
 	termToReturn := state.GetCurrentTerm()
 	if c.term != nil {
 		termToReturn = *c.term
@@ -61,7 +61,7 @@ func TestNodeIsInFollowerStateAfterStarting(t *testing.T) {
 	defer manager.CloseGracefully()
 	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "100000") // long timeout
 
-	var expectedVote *state.CandidateId = nil
+	var expectedVote *state.NodeId = nil
 
 	// WHEN
 	manager.Start()
@@ -77,12 +77,12 @@ func TestLeaderBecomesFollowerWhenReceivesVoteWithBiggerTerm(t *testing.T) {
 	manager := NewTestManagerDefault(t)
 	defer manager.CloseGracefully()
 
-	currentNodeId := state.CandidateId(1)
+	currentNodeId := state.NodeId(1)
 	manager.state.SetCurrentStatus(state.LEADER)
 	manager.state.SetVotedFor(&currentNodeId)
 
 	newTerm := manager.state.GetCurrentTerm() + 1
-	newLeaderId := state.CandidateId(2)
+	newLeaderId := state.NodeId(2)
 
 	// WHEN
 	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId)
@@ -106,7 +106,7 @@ func TestFollowerGrantsVoteIfNoVotedFor(t *testing.T) {
 	manager.state.SetVotedFor(nil) // no vote yet
 
 	newTerm := manager.state.GetCurrentTerm() // same term
-	newLeaderId := state.CandidateId(2)
+	newLeaderId := state.NodeId(2)
 
 	// WHEN
 	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId)
@@ -126,12 +126,12 @@ func TestFollowerDoesntGrantVoteIfAlreadyVoted(t *testing.T) {
 	manager := NewTestManagerDefault(t)
 	defer manager.CloseGracefully()
 
-	oldLeaderId := state.CandidateId(1)
+	oldLeaderId := state.NodeId(1)
 	manager.state.SetCurrentStatus(state.FOLLOWER)
 	manager.state.SetVotedFor(&oldLeaderId)
 
 	newTerm := manager.state.GetCurrentTerm() // same term
-	newLeaderId := state.CandidateId(2)
+	newLeaderId := state.NodeId(2)
 
 	// WHEN
 	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId)
@@ -157,7 +157,7 @@ func TestFollowerDoesntGrantVoteIfNewTermIsOutdated(t *testing.T) {
 	manager.state.SetCurrentTerm(state.Term(2))
 
 	newTerm := manager.state.GetCurrentTerm() - 1 // previous term
-	newLeaderId := state.CandidateId(2)
+	newLeaderId := state.NodeId(2)
 
 	// WHEN
 	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId)
@@ -241,7 +241,7 @@ func TestNodeBecomesLeaderIfReceivesEnoughVotes(t *testing.T) {
 func TestNodeBecomesFollowerIfVoteResponseTermIsBigger(t *testing.T) {
 	// GIVEN
 	expectedTerm := state.Term(2)
-	var expectedVote *state.CandidateId = nil
+	var expectedVote *state.NodeId = nil
 
 	mockClient := &NodeClientMock{returnValue: false, term: &expectedTerm} // set bigger term then initial
 
@@ -267,7 +267,7 @@ func TestNodeBecomesFollowerIfVoteResponseTermIsBigger(t *testing.T) {
 
 func TestNodeBecomesFollowerIfHeartbeatResponseTermIsBigger(t *testing.T) {
 	expectedTerm := state.Term(2)
-	var expectedVote *state.CandidateId = nil
+	var expectedVote *state.NodeId = nil
 
 	mockClient := &NodeClientMock{returnValue: false, term: &expectedTerm} // set bigger term then initial
 
@@ -276,7 +276,7 @@ func TestNodeBecomesFollowerIfHeartbeatResponseTermIsBigger(t *testing.T) {
 	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "100000") // long timeout to prevent another election
 
 	initialTerm := state.Term(0)
-	nodeId := state.CandidateId(0)
+	nodeId := state.NodeId(0)
 
 	manager.state.SetCurrentStatus(state.LEADER)
 	manager.state.SetVotedFor(&nodeId)

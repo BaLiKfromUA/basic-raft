@@ -15,8 +15,8 @@ import (
 )
 
 type NodeClient interface {
-	RequestVote(candidateId state.CandidateId, state state.State) (bool, state.Term, error)
-	AppendEntries(leaderId state.CandidateId, state state.State) (bool, state.Term, error)
+	RequestVote(candidateId state.NodeId, state state.State) (bool, state.Term, error)
+	AppendEntries(leaderId state.NodeId, state state.State) (bool, state.Term, error)
 }
 
 type httpClient struct {
@@ -24,7 +24,7 @@ type httpClient struct {
 	addr   string
 }
 
-func (c *httpClient) RequestVote(candidateId state.CandidateId, s state.State) (bool, state.Term, error) {
+func (c *httpClient) RequestVote(candidateId state.NodeId, s state.State) (bool, state.Term, error) {
 	req := message.NewVoteRequest(uint64(candidateId), s)
 
 	reqBytes, err := json.Marshal(&req)
@@ -62,7 +62,7 @@ func (c *httpClient) RequestVote(candidateId state.CandidateId, s state.State) (
 	return voteResponse.VoteGranted, state.Term(voteResponse.Term), nil
 }
 
-func (c *httpClient) AppendEntries(leaderId state.CandidateId, s state.State) (bool, state.Term, error) {
+func (c *httpClient) AppendEntries(leaderId state.NodeId, s state.State) (bool, state.Term, error) {
 	req := message.NewAppendEntriesRequest(uint64(leaderId), s)
 
 	reqBytes, err := json.Marshal(&req)

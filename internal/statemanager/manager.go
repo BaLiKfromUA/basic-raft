@@ -16,12 +16,12 @@ type Manager struct {
 	mu               *sync.Mutex
 	routineGroup     *sync.WaitGroup
 	state            *state.State
-	id               state.CandidateId
+	id               state.NodeId
 	lastElectionTime time.Time
 	nodes            []client.NodeClient
 }
 
-func NewManager(id state.CandidateId, nodes []client.NodeClient) *Manager {
+func NewManager(id state.NodeId, nodes []client.NodeClient) *Manager {
 	if int(id) >= len(nodes) {
 		log.Fatal("invalid candidate id, id > number of nodes")
 	}
@@ -113,7 +113,7 @@ func (m *Manager) startElection() {
 
 	votesReceived := 1
 	for ind, peerNode := range m.nodes {
-		if state.CandidateId(ind) == candidateId {
+		if state.NodeId(ind) == candidateId {
 			continue
 		}
 
@@ -199,7 +199,7 @@ func (m *Manager) sendHeartbeats() {
 	m.mu.Unlock()
 
 	for id, peerNode := range m.nodes {
-		if state.CandidateId(id) == candidateId {
+		if state.NodeId(id) == candidateId {
 			continue
 		}
 
@@ -232,7 +232,7 @@ func (m *Manager) becomeFollower(term state.Term) {
 	go m.runElectionTimer()
 }
 
-func (m *Manager) GrantVote(proposedTerm state.Term, candidateId state.CandidateId) (bool, state.Term) {
+func (m *Manager) GrantVote(proposedTerm state.Term, candidateId state.NodeId) (bool, state.Term) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.state.GetCurrentStatus() == state.DEAD {
@@ -261,7 +261,7 @@ func (m *Manager) GrantVote(proposedTerm state.Term, candidateId state.Candidate
 	return acceptedVote, m.state.GetCurrentTerm()
 }
 
-func (m *Manager) AppendEntries(leaderTerm state.Term, leaderId state.CandidateId) (bool, state.Term) {
+func (m *Manager) AppendEntries(leaderTerm state.Term, leaderId state.NodeId) (bool, state.Term) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.state.GetCurrentStatus() == state.DEAD {

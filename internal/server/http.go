@@ -35,7 +35,7 @@ func (s *Node) RequestVoteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// todo: handle all fields from request
-	voteGranted, currentTerm := s.state.GrantVote(state.Term(voteMessage.Term), state.CandidateId(voteMessage.CandidateId))
+	voteGranted, currentTerm := s.state.GrantVote(state.Term(voteMessage.Term), state.NodeId(voteMessage.CandidateId))
 	response := message.VoteResponse{
 		Term:        uint64(currentTerm),
 		VoteGranted: voteGranted,
@@ -105,7 +105,7 @@ func NewNodeServer() *http.Server {
 
 	id, _ := strconv.Atoi(idStr)
 	server := &Node{
-		state: statemanager.NewManager(state.CandidateId(id), nodes),
+		state: statemanager.NewManager(state.NodeId(id), nodes),
 	}
 
 	port, ok := os.LookupEnv("NODE_PORT")

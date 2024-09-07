@@ -10,7 +10,7 @@ const (
 )
 
 type Term uint64
-type CandidateId uint64
+type NodeId uint64
 
 type LogEntry struct {
 	Term    Term
@@ -19,8 +19,8 @@ type LogEntry struct {
 
 // State WARNING: not thread-safe. Synchronization is implemented by state manager
 type State struct {
-	currentTerm   Term         // latest term server has seen (initialized to 0 on first boot, increases monotonically)
-	votedFor      *CandidateId //candidateId that received vote in current term (or null if none)
+	currentTerm   Term    // latest term server has seen (initialized to 0 on first boot, increases monotonically)
+	votedFor      *NodeId //candidateId that received vote in current term (or null if none)
 	log           []LogEntry
 	currentStatus NodeStatus
 }
@@ -37,11 +37,11 @@ func (s *State) SetCurrentTerm(term Term) {
 	s.currentTerm = term
 }
 
-func (s *State) GetVotedFor() *CandidateId {
+func (s *State) GetVotedFor() *NodeId {
 	return s.votedFor
 }
 
-func (s *State) SetVotedFor(votedFor *CandidateId) {
+func (s *State) SetVotedFor(votedFor *NodeId) {
 	s.votedFor = votedFor
 }
 
