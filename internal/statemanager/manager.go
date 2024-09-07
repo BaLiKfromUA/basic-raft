@@ -122,7 +122,7 @@ func (m *Manager) startElection() {
 			defer m.routineGroup.Done()
 
 			voteGranted, voteTerm, err := peer.RequestVote(candidateId, savedState)
-			if err != nil {
+			if err == nil {
 				m.mu.Lock()
 				defer m.mu.Unlock()
 
@@ -139,7 +139,9 @@ func (m *Manager) startElection() {
 
 				if voteTerm == savedState.GetCurrentTerm() && voteGranted {
 					votesReceived++
-					// received the majority of votes --> (N + 1) / 2
+					log.Printf("[current term: %v] Candidate %d receives vote from node %d", voteTerm, candidateId, peerInd)
+
+					// received the majority of votes --> (N + 1) // 2
 					if votesReceived*2 > len(m.nodes)+1 {
 						log.Printf("[current term: %v] Candidate %d won an election and becomes leader", voteTerm, candidateId)
 						m.becomeLeader()
@@ -147,7 +149,7 @@ func (m *Manager) startElection() {
 				}
 
 			} else {
-				log.Printf("error during call of peer node %d to vote: %v", peerInd, peer)
+				log.Printf("error during call of peer node %d to vote: %v", peerInd, err)
 			}
 
 		}(ind, peerNode)
