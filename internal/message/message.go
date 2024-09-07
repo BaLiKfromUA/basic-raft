@@ -14,6 +14,6 @@ type VoteResponse struct {
 	VoteGranted bool   `json:"vote_granted"`
 }
 
-func NewVoteRequest(candidateId uint64, state *state.State) *VoteRequest {
+func NewVoteRequest(candidateId uint64, state state.State) *VoteRequest {
 	return &VoteRequest{Term: uint64(state.GetCurrentTerm() + 1), CandidateId: candidateId, LastLogIndex: state.GetLastLogIndex(), LastLogTerm: uint64(state.GetLastLogTerm())}
 }

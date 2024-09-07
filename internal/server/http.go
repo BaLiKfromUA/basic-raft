@@ -1,6 +1,7 @@
 package server
 
 import (
+	"basic-raft/internal/client"
 	"basic-raft/internal/message"
 	"basic-raft/internal/state"
 	"basic-raft/internal/statemanager"
@@ -9,8 +10,10 @@ import (
 	"github.com/gorilla/mux"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -53,15 +56,56 @@ func createRouter(handler *Node) *mux.Router {
 	return r
 }
 
+// isValidUrl tests a string to determine if it is a well-structured url or not.
+func isValidUrl(toTest string) bool {
+	_, err := url.ParseRequestURI(toTest)
+	if err != nil {
+		log.Printf("'%s' is an invalid URL", toTest)
+		return false
+	}
+
+	u, err := url.Parse(toTest)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		log.Printf("'%s' is an invalid URL", toTest)
+		return false
+	}
+
+	return true
+}
+
 func NewNodeServer() *http.Server {
 	idStr, ok := os.LookupEnv("NODE_INDEX")
 	if !ok {
 		log.Fatalf("node id is not set! Use `NODE_INDEX` env variable")
 	}
 
+	nodesUrlToken, ok := os.LookupEnv("NODES_URLS")
+	if !ok {
+		log.Fatalf("node urls is not set! Use `NODE_URLS` env variable")
+	}
+
+	nodesUrls := strings.Split(nodesUrlToken, ",")
+	if len(nodesUrls) == 0 {
+		log.Fatalf("Given `NODE_URLS` token is empty")
+	}
+
+	isValid := true
+	for _, nodeUrl := range nodesUrls {
+		isValid = isValidUrl(nodeUrl) && isValid
+	}
+	if !isValid {
+		log.Fatalf("Given `NODE_URLS` token is invalid: '%s'", nodesUrlToken)
+
+	}
+
+	nodes := make([]client.NodeClient, 0)
+	for _, nodeUrl := range nodesUrls {
+		nodes = append(nodes, client.NewNodeClient(nodeUrl))
+	}
+
 	id, _ := strconv.Atoi(idStr)
 	server := &Node{
-		state: statemanager.NewManager(state.CandidateId(id)),
+		state: statemanager.NewManager(state.CandidateId(id), nodes),
 	}
 
 	port, ok := os.LookupEnv("NODE_PORT")

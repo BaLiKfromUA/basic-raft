@@ -4,7 +4,8 @@ x-env: &env
   environment:
     NODES_URLS: "http://node1:8000,http://node2:8000,http://node3:8000"
     NODE_PORT: "8000"
-    REQUEST_TIMEOUT_MILLISECONDS: "100"
+    REQUEST_TIMEOUT_MILLISECONDS: "50"
+    HEARTBEAT_PERIOD_MILLISECONDS: "50"
     ELECTION_TIMEOUT_MILLISECONDS: "150"
 
 services:

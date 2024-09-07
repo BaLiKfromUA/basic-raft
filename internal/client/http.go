@@ -15,7 +15,7 @@ import (
 )
 
 type NodeClient interface {
-	RequestVote(candidateId uint64, state *state.State) (bool, state.Term, error)
+	RequestVote(candidateId uint64, state state.State) (bool, state.Term, error)
 }
 
 type httpClient struct {
@@ -23,7 +23,7 @@ type httpClient struct {
 	addr   string
 }
 
-func (c *httpClient) RequestVote(candidateId uint64, s *state.State) (bool, state.Term, error) {
+func (c *httpClient) RequestVote(candidateId uint64, s state.State) (bool, state.Term, error) {
 	req := message.NewVoteRequest(candidateId, s)
 
 	reqBytes, err := json.Marshal(&req)

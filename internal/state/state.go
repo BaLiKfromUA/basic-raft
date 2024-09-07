@@ -6,6 +6,7 @@ const (
 	FOLLOWER  NodeStatus = "FOLLOWER"
 	LEADER    NodeStatus = "LEADER"
 	CANDIDATE NodeStatus = "CANDIDATE"
+	DEAD      NodeStatus = "DEAD"
 )
 
 type Term uint64

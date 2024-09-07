@@ -1,14 +1,35 @@
 package statemanager
 
 import (
+	"basic-raft/internal/client"
 	"basic-raft/internal/state"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
+type NodeClientMock struct {
+	voteGranted bool
+}
+
+func (c *NodeClientMock) RequestVote(_ uint64, state state.State) (bool, state.Term, error) {
+	return c.voteGranted, state.GetCurrentTerm(), nil
+}
+
+func NewTestManager(t *testing.T, nodes []client.NodeClient) *Manager {
+	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "10")
+	t.Setenv("HEARTBEAT_PERIOD_MILLISECONDS", "5")
+	manager := NewManager(0, nodes)
+	return manager
+}
+
+func NewTestManagerDefault(t *testing.T) *Manager {
+	mockClient := &NodeClientMock{voteGranted: true}
+	return NewTestManager(t, []client.NodeClient{mockClient, mockClient})
+}
+
 func TestLeaderBecomesFollowerWhenReceivesVoteWithBiggerTerm(t *testing.T) {
 	// GIVEN
-	manager := NewManager(42)
+	manager := NewTestManagerDefault(t)
 	defer manager.CloseGracefully()
 
 	currentNodeId := state.CandidateId(1)
@@ -33,7 +54,7 @@ func TestLeaderBecomesFollowerWhenReceivesVoteWithBiggerTerm(t *testing.T) {
 
 func TestFollowerGrantsVoteIfNoVotedFor(t *testing.T) {
 	// GIVEN
-	manager := NewManager(42)
+	manager := NewTestManagerDefault(t)
 	defer manager.CloseGracefully()
 
 	manager.state.SetCurrentStatus(state.FOLLOWER)
@@ -57,7 +78,7 @@ func TestFollowerGrantsVoteIfNoVotedFor(t *testing.T) {
 
 func TestFollowerDoesntGrantVoteIfAlreadyVoted(t *testing.T) {
 	// Given
-	manager := NewManager(42)
+	manager := NewTestManagerDefault(t)
 	defer manager.CloseGracefully()
 
 	oldLeaderId := state.CandidateId(1)
@@ -83,7 +104,7 @@ func TestFollowerDoesntGrantVoteIfAlreadyVoted(t *testing.T) {
 
 func TestFollowerDoesntGrantVoteIfNewTermIsOutdated(t *testing.T) {
 	// Given
-	manager := NewManager(42)
+	manager := NewTestManagerDefault(t)
 	defer manager.CloseGracefully()
 
 	manager.state.SetCurrentStatus(state.FOLLOWER)
@@ -109,8 +130,9 @@ func TestFollowerDoesntGrantVoteIfNewTermIsOutdated(t *testing.T) {
 
 func TestFollowerStartsElectionIfTimeoutExceeded(t *testing.T) {
 	// GIVEN
-	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "10")
-	manager := NewManager(42)
+	mockClient := &NodeClientMock{voteGranted: false} // set False to prevent becoming a leader
+	manager := NewTestManager(t, []client.NodeClient{mockClient, mockClient})
+	defer manager.CloseGracefully()
 
 	initialTerm := state.Term(0)
 
@@ -120,7 +142,6 @@ func TestFollowerStartsElectionIfTimeoutExceeded(t *testing.T) {
 
 	// WHEN
 	manager.runElectionTimer()
-	manager.CloseGracefully() // wait timer to finish
 
 	// THEN
 	require.Equal(t, manager.state.GetCurrentStatus(), state.CANDIDATE)
@@ -130,8 +151,10 @@ func TestFollowerStartsElectionIfTimeoutExceeded(t *testing.T) {
 
 func TestNodeDoesntStartsElectionIfLeader(t *testing.T) {
 	// GIVEN
-	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "10")
-	manager := NewManager(42)
+	mockClient := &NodeClientMock{voteGranted: false} // set False to prevent becoming a leader
+	manager := NewTestManager(t, []client.NodeClient{mockClient, mockClient})
+	defer manager.CloseGracefully()
+
 	initialTerm := state.Term(0)
 
 	manager.state.SetCurrentStatus(state.LEADER)
@@ -140,7 +163,6 @@ func TestNodeDoesntStartsElectionIfLeader(t *testing.T) {
 
 	// WHEN
 	manager.runElectionTimer()
-	manager.CloseGracefully() // wait timer to finish
 
 	// THEN
 	require.Equal(t, manager.state.GetCurrentStatus(), state.LEADER)
