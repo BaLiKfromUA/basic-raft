@@ -9,17 +9,26 @@ import (
 )
 
 type NodeClientMock struct {
-	voteGranted bool
+	returnValue bool
 	term        *state.Term
 }
 
-func (c *NodeClientMock) RequestVote(_ uint64, state state.State) (bool, state.Term, error) {
+func (c *NodeClientMock) RequestVote(_ state.CandidateId, state state.State) (bool, state.Term, error) {
 	termToReturn := state.GetCurrentTerm()
 	if c.term != nil {
 		termToReturn = *c.term
 	}
 
-	return c.voteGranted, termToReturn, nil
+	return c.returnValue, termToReturn, nil
+}
+
+func (c *NodeClientMock) AppendEntries(_ state.CandidateId, state state.State) (bool, state.Term, error) {
+	termToReturn := state.GetCurrentTerm()
+	if c.term != nil {
+		termToReturn = *c.term
+	}
+
+	return c.returnValue, termToReturn, nil
 }
 
 func NewTestManager(t *testing.T, nodes []client.NodeClient) *Manager {
@@ -30,7 +39,7 @@ func NewTestManager(t *testing.T, nodes []client.NodeClient) *Manager {
 }
 
 func NewTestManagerDefault(t *testing.T) *Manager {
-	mockClient := &NodeClientMock{voteGranted: true}
+	mockClient := &NodeClientMock{returnValue: true}
 	return NewTestManager(t, []client.NodeClient{mockClient, mockClient})
 }
 
@@ -166,7 +175,7 @@ func TestFollowerDoesntGrantVoteIfNewTermIsOutdated(t *testing.T) {
 
 func TestFollowerStartsElectionIfTimeoutExceeded(t *testing.T) {
 	// GIVEN
-	mockClient := &NodeClientMock{voteGranted: false} // set False to prevent becoming a leader
+	mockClient := &NodeClientMock{returnValue: false} // set False to prevent becoming a leader
 	manager := NewTestManager(t, []client.NodeClient{mockClient, mockClient})
 	defer manager.CloseGracefully()
 
@@ -187,7 +196,7 @@ func TestFollowerStartsElectionIfTimeoutExceeded(t *testing.T) {
 
 func TestNodeDoesntStartsElectionIfLeader(t *testing.T) {
 	// GIVEN
-	mockClient := &NodeClientMock{voteGranted: false} // set False to prevent becoming a leader
+	mockClient := &NodeClientMock{returnValue: false} // set False to prevent becoming a leader
 	manager := NewTestManager(t, []client.NodeClient{mockClient, mockClient})
 	defer manager.CloseGracefully()
 
@@ -208,7 +217,7 @@ func TestNodeDoesntStartsElectionIfLeader(t *testing.T) {
 
 func TestNodeBecomesLeaderIfReceivesEnoughVotes(t *testing.T) {
 	// GIVEN
-	mockClient := &NodeClientMock{voteGranted: true} // set False to become a leader
+	mockClient := &NodeClientMock{returnValue: true} // set False to become a leader
 	manager := NewTestManager(t, []client.NodeClient{mockClient, mockClient})
 	defer manager.CloseGracefully()
 	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "100000") // long timeout to prevent another election
@@ -229,12 +238,12 @@ func TestNodeBecomesLeaderIfReceivesEnoughVotes(t *testing.T) {
 	require.Equal(t, manager.state.GetCurrentTerm(), initialTerm+1)
 }
 
-func TestNodeDoesntBecomeFollowerIfVoteResponseTermIsBigger(t *testing.T) {
+func TestNodeBecomesFollowerIfVoteResponseTermIsBigger(t *testing.T) {
 	// GIVEN
 	expectedTerm := state.Term(2)
 	var expectedVote *state.CandidateId = nil
 
-	mockClient := &NodeClientMock{voteGranted: false, term: &expectedTerm} // set bigger term then initial
+	mockClient := &NodeClientMock{returnValue: false, term: &expectedTerm} // set bigger term then initial
 
 	manager := NewTestManager(t, []client.NodeClient{mockClient, mockClient})
 	defer manager.CloseGracefully()
@@ -248,6 +257,33 @@ func TestNodeDoesntBecomeFollowerIfVoteResponseTermIsBigger(t *testing.T) {
 
 	// WHEN
 	manager.startElection()
+	time.Sleep(time.Millisecond * 100)
+
+	// THEN
+	require.Equal(t, manager.state.GetCurrentStatus(), state.FOLLOWER)
+	require.Equal(t, manager.state.GetVotedFor(), expectedVote)
+	require.Equal(t, manager.state.GetCurrentTerm(), expectedTerm)
+}
+
+func TestNodeBecomesFollowerIfHeartbeatResponseTermIsBigger(t *testing.T) {
+	expectedTerm := state.Term(2)
+	var expectedVote *state.CandidateId = nil
+
+	mockClient := &NodeClientMock{returnValue: false, term: &expectedTerm} // set bigger term then initial
+
+	manager := NewTestManager(t, []client.NodeClient{mockClient, mockClient})
+	defer manager.CloseGracefully()
+	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "100000") // long timeout to prevent another election
+
+	initialTerm := state.Term(0)
+	nodeId := state.CandidateId(0)
+
+	manager.state.SetCurrentStatus(state.LEADER)
+	manager.state.SetVotedFor(&nodeId)
+	manager.state.SetCurrentTerm(initialTerm)
+
+	// WHEN
+	manager.sendHeartbeats()
 	time.Sleep(time.Millisecond * 100)
 
 	// THEN

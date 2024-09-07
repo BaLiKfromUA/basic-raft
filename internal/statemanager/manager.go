@@ -106,14 +106,14 @@ func (m *Manager) startElection() {
 	m.lastElectionTime = time.Now()
 
 	savedState := *m.state // copy of state
-	candidateId := uint64(m.id)
+	candidateId := m.id
 	log.Printf("[current term: %v] Start election, candidate is %d", savedState.GetCurrentTerm(), candidateId)
 
 	m.mu.Unlock()
 
 	votesReceived := 1
 	for ind, peerNode := range m.nodes {
-		if state.CandidateId(ind) == m.id {
+		if state.CandidateId(ind) == candidateId {
 			continue
 		}
 
@@ -178,7 +178,7 @@ func (m *Manager) becomeLeader() {
 		defer ticker.Stop()
 
 		for {
-			// send request
+			m.sendHeartbeats()
 			<-ticker.C
 
 			m.mu.Lock()
@@ -187,10 +187,38 @@ func (m *Manager) becomeLeader() {
 				return
 			}
 			m.mu.Unlock()
-
-			// todo:
 		}
 	}()
+}
+
+func (m *Manager) sendHeartbeats() {
+	// todo: optimize health check later
+	m.mu.Lock()
+	candidateId := m.id
+	savedState := *m.state
+	m.mu.Unlock()
+
+	for id, peerNode := range m.nodes {
+		if state.CandidateId(id) == candidateId {
+			continue
+		}
+
+		go func(peerNode client.NodeClient, peerInd int) {
+			m.routineGroup.Add(1)
+			defer m.routineGroup.Done()
+
+			_, peerTerm, err := peerNode.AppendEntries(candidateId, savedState)
+			if err == nil {
+				if peerTerm > savedState.GetCurrentTerm() {
+					log.Printf("term in vote is out of date, node %d becomes follower for term %d", m.id, peerTerm)
+					m.becomeFollower(peerTerm)
+					return
+				}
+			} else {
+				log.Printf("error during call of peer node %d to ping: %v", peerInd, err)
+			}
+		}(peerNode, id)
+	}
 }
 
 // becomeFollower: not thread-safe and private
@@ -207,6 +235,9 @@ func (m *Manager) becomeFollower(term state.Term) {
 func (m *Manager) GrantVote(proposedTerm state.Term, candidateId state.CandidateId) (bool, state.Term) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.state.GetCurrentStatus() == state.DEAD {
+		return false, 0
+	}
 
 	log.Printf("Trial to grant vote for candidate %v during term %v", candidateId, proposedTerm)
 
@@ -228,6 +259,33 @@ func (m *Manager) GrantVote(proposedTerm state.Term, candidateId state.Candidate
 	}
 
 	return acceptedVote, m.state.GetCurrentTerm()
+}
+
+func (m *Manager) AppendEntries(leaderTerm state.Term, leaderId state.CandidateId) (bool, state.Term) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state.GetCurrentStatus() == state.DEAD {
+		return false, 0
+	}
+
+	log.Printf("[current term: %d] Trial to append entries from node %v", m.state.GetCurrentTerm(), leaderId)
+
+	if leaderTerm > m.state.GetCurrentTerm() {
+		log.Printf("current term %d is out of date, new term: %v", m.state.GetCurrentTerm(), leaderTerm)
+		m.becomeFollower(leaderTerm)
+	}
+
+	responseSuccess := false
+	if leaderTerm == m.state.GetCurrentTerm() {
+		if m.state.GetCurrentStatus() != state.FOLLOWER {
+			m.becomeFollower(leaderTerm)
+		}
+		m.lastElectionTime = time.Now()
+		responseSuccess = true
+	}
+
+	responseTerm := m.state.GetCurrentTerm()
+	return responseSuccess, responseTerm
 }
 
 func (m *Manager) CloseGracefully() {

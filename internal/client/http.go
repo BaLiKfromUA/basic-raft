@@ -15,7 +15,8 @@ import (
 )
 
 type NodeClient interface {
-	RequestVote(candidateId uint64, state state.State) (bool, state.Term, error)
+	RequestVote(candidateId state.CandidateId, state state.State) (bool, state.Term, error)
+	AppendEntries(leaderId state.CandidateId, state state.State) (bool, state.Term, error)
 }
 
 type httpClient struct {
@@ -23,8 +24,8 @@ type httpClient struct {
 	addr   string
 }
 
-func (c *httpClient) RequestVote(candidateId uint64, s state.State) (bool, state.Term, error) {
-	req := message.NewVoteRequest(candidateId, s)
+func (c *httpClient) RequestVote(candidateId state.CandidateId, s state.State) (bool, state.Term, error) {
+	req := message.NewVoteRequest(uint64(candidateId), s)
 
 	reqBytes, err := json.Marshal(&req)
 	if err != nil {
@@ -59,6 +60,43 @@ func (c *httpClient) RequestVote(candidateId uint64, s state.State) (bool, state
 	}
 
 	return voteResponse.VoteGranted, state.Term(voteResponse.Term), nil
+}
+
+func (c *httpClient) AppendEntries(leaderId state.CandidateId, s state.State) (bool, state.Term, error) {
+	req := message.NewAppendEntriesRequest(uint64(leaderId), s)
+
+	reqBytes, err := json.Marshal(&req)
+	if err != nil {
+		log.Printf("error during encoding to json: %v", err)
+		return false, 0, err
+	}
+
+	resp, err := c.client.Post(c.addr+"/api/v1/append", "application/json", bytes.NewReader(reqBytes))
+	if err != nil {
+		log.Printf("error during append request to %s: %v", c.addr, err)
+		return false, 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("unexpected status code after append request to %s: %v", c.addr, resp.Status)
+		return false, 0, errors.New(resp.Status)
+	}
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("error during decoding response body: %v", err)
+		return false, 0, err
+	}
+
+	var appendResponse message.AppendEntriesResponse
+	err = json.Unmarshal(responseBody, &appendResponse)
+	if err != nil {
+		log.Printf("error during decoding response body: %v", err)
+		return false, 0, err
+	}
+
+	return appendResponse.Success, state.Term(appendResponse.Term), nil
 }
 
 func NewNodeClient(addr string) NodeClient {
