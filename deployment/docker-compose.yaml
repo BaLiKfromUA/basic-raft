@@ -1,7 +1,7 @@
-version: '4,7'
+version: '3.4'
 
-x-env: &env
-  environment:
+x-env:
+  environment: &env
     NODES_URLS: "http://node1:8000,http://node2:8000,http://node3:8000"
     NODE_PORT: "8000"
     REQUEST_TIMEOUT_MILLISECONDS: "50"
@@ -10,7 +10,7 @@ x-env: &env
 
 services:
   node1:
-    build: &build-common
+    build:
       context: ../
       dockerfile: build/Dockerfile
     networks:
@@ -20,7 +20,9 @@ services:
       NODE_INDEX: "0"
 
   node2:
-    <<: *build-common
+    build:
+      context: ../
+      dockerfile: build/Dockerfile
     networks:
       - isolated_network
     environment:
@@ -28,7 +30,9 @@ services:
       NODE_INDEX: "1"
 
   node3:
-    <<: *build-common
+    build:
+      context: ../
+      dockerfile: build/Dockerfile
     networks:
       - isolated_network
     environment:

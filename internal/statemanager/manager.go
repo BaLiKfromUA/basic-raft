@@ -12,6 +12,14 @@ import (
 	"time"
 )
 
+type StateManager interface {
+	GrantVote(proposedTerm state.Term, candidateId state.NodeId) (bool, state.Term)
+	AppendEntries(leaderTerm state.Term, leaderId state.NodeId) (bool, state.Term)
+
+	Start()
+	CloseGracefully()
+}
+
 type Manager struct {
 	mu               *sync.Mutex
 	routineGroup     *sync.WaitGroup
@@ -21,7 +29,7 @@ type Manager struct {
 	nodes            []client.NodeClient
 }
 
-func NewManager(id state.NodeId, nodes []client.NodeClient) *Manager {
+func NewManager(id state.NodeId, nodes []client.NodeClient) StateManager {
 	if int(id) >= len(nodes) {
 		log.Fatal("invalid candidate id, id > number of nodes")
 	}
@@ -196,6 +204,8 @@ func (m *Manager) sendHeartbeats() {
 	m.mu.Lock()
 	candidateId := m.id
 	savedState := *m.state
+
+	log.Printf("[current term: %d] Sending periodic heartbeats from %d", m.state.GetCurrentTerm(), candidateId)
 	m.mu.Unlock()
 
 	for id, peerNode := range m.nodes {

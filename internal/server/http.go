@@ -18,11 +18,29 @@ import (
 )
 
 type Node struct {
-	state *statemanager.Manager
+	state statemanager.StateManager
 }
 
 func (s *Node) AppendEntriesHandler(w http.ResponseWriter, r *http.Request) {
+	var appendEntriesRequest message.AppendEntriesRequest
 
+	err := json.NewDecoder(r.Body).Decode(&appendEntriesRequest)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// todo: handle all fields from request
+	success, currentTerm := s.state.AppendEntries(state.Term(appendEntriesRequest.Term), state.NodeId(appendEntriesRequest.LeaderId))
+	response := message.AppendEntriesResponse{
+		Success: success,
+		Term:    uint64(currentTerm),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	rawResponse, _ := json.Marshal(response)
+	_, _ = w.Write(rawResponse)
 }
 
 func (s *Node) RequestVoteHandler(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +69,7 @@ func createRouter(handler *Node) *mux.Router {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/api/v1/append", handler.AppendEntriesHandler).Methods(http.MethodPost)
-	r.HandleFunc("/api/v1/vote", handler.RequestVoteHandler).Methods(http.MethodPut)
+	r.HandleFunc("/api/v1/vote", handler.RequestVoteHandler).Methods(http.MethodPost)
 
 	return r
 }

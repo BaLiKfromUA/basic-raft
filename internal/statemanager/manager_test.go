@@ -4,6 +4,7 @@ import (
 	"basic-raft/internal/client"
 	"basic-raft/internal/state"
 	"github.com/stretchr/testify/require"
+	"sync"
 	"testing"
 	"time"
 )
@@ -34,8 +35,15 @@ func (c *NodeClientMock) AppendEntries(_ state.NodeId, state state.State) (bool,
 func NewTestManager(t *testing.T, nodes []client.NodeClient) *Manager {
 	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "10")
 	t.Setenv("HEARTBEAT_PERIOD_MILLISECONDS", "5")
-	manager := NewManager(0, nodes)
-	return manager
+
+	return &Manager{
+		mu:               &sync.Mutex{},
+		routineGroup:     &sync.WaitGroup{},
+		state:            state.NewState(),
+		id:               0,
+		lastElectionTime: time.Now(),
+		nodes:            nodes,
+	}
 }
 
 func NewTestManagerDefault(t *testing.T) *Manager {
@@ -290,4 +298,59 @@ func TestNodeBecomesFollowerIfHeartbeatResponseTermIsBigger(t *testing.T) {
 	require.Equal(t, manager.state.GetCurrentStatus(), state.FOLLOWER)
 	require.Equal(t, manager.state.GetVotedFor(), expectedVote)
 	require.Equal(t, manager.state.GetCurrentTerm(), expectedTerm)
+}
+
+func TestLeaderBecomesFollowerIfReceivesHeartbeatWithNewerTerm(t *testing.T) {
+	// GIVEN
+	expectedTerm := state.Term(2)
+	var expectedVote *state.NodeId = nil
+
+	manager := NewTestManagerDefault(t)
+	defer manager.CloseGracefully()
+	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "100000") // long timeout to prevent another election
+
+	initialTerm := state.Term(0)
+	nodeId := state.NodeId(0)
+
+	manager.state.SetCurrentStatus(state.LEADER)
+	manager.state.SetVotedFor(&nodeId)
+	manager.state.SetCurrentTerm(initialTerm)
+
+	// WHEN
+	success, term := manager.AppendEntries(expectedTerm, 1)
+
+	// THEN
+	require.Equal(t, true, success)
+	require.Equal(t, expectedTerm, term)
+
+	require.Equal(t, manager.state.GetCurrentStatus(), state.FOLLOWER)
+	require.Equal(t, manager.state.GetVotedFor(), expectedVote)
+	require.Equal(t, manager.state.GetCurrentTerm(), expectedTerm)
+}
+
+func TestCandidateBecomesFollowerIfReceivesHeartbeatFromNewLeader(t *testing.T) {
+	// GIVEN
+	var expectedVote *state.NodeId = nil
+
+	manager := NewTestManagerDefault(t)
+	defer manager.CloseGracefully()
+	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "100000") // long timeout to prevent another election
+
+	initialTerm := state.Term(0)
+	nodeId := state.NodeId(0)
+
+	manager.state.SetCurrentStatus(state.CANDIDATE)
+	manager.state.SetVotedFor(&nodeId)
+	manager.state.SetCurrentTerm(initialTerm)
+
+	// WHEN
+	success, term := manager.AppendEntries(initialTerm, 1)
+
+	// THEN
+	require.Equal(t, true, success)
+	require.Equal(t, initialTerm, term)
+
+	require.Equal(t, manager.state.GetCurrentStatus(), state.FOLLOWER)
+	require.Equal(t, manager.state.GetVotedFor(), expectedVote)
+	require.Equal(t, manager.state.GetCurrentTerm(), initialTerm)
 }
