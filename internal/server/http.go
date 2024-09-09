@@ -21,6 +21,26 @@ type Node struct {
 	state statemanager.StateManager
 }
 
+func (s *Node) AppendEntryHandler(w http.ResponseWriter, r *http.Request) {
+	var appendEntryRequest message.ClientAppendEntryRequest
+
+	err := json.NewDecoder(r.Body).Decode(&appendEntryRequest)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// todo: reject if no quorum or not leader
+
+	isAppended := s.state.AppendEntry(state.Command(appendEntryRequest.Command))
+
+	if isAppended {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusConflict)
+	}
+}
+
 func (s *Node) AppendEntriesHandler(w http.ResponseWriter, r *http.Request) {
 	var appendEntriesRequest message.AppendEntriesRequest
 
@@ -68,8 +88,9 @@ func (s *Node) RequestVoteHandler(w http.ResponseWriter, r *http.Request) {
 func createRouter(handler *Node) *mux.Router {
 	r := mux.NewRouter()
 
-	r.HandleFunc("/api/v1/append", handler.AppendEntriesHandler).Methods(http.MethodPost)
-	r.HandleFunc("/api/v1/vote", handler.RequestVoteHandler).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/append", handler.AppendEntryHandler).Methods("POST")
+	r.HandleFunc("/api/v1/internal/append", handler.AppendEntriesHandler).Methods(http.MethodPost)
+	r.HandleFunc("/api/v1/internal/vote", handler.RequestVoteHandler).Methods(http.MethodPost)
 
 	return r
 }

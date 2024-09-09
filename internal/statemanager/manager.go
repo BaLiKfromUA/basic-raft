@@ -15,6 +15,7 @@ import (
 type StateManager interface {
 	GrantVote(proposedTerm state.Term, candidateId state.NodeId) (bool, state.Term)
 	AppendEntries(leaderTerm state.Term, leaderId state.NodeId) (bool, state.Term)
+	AppendEntry(command state.Command) bool
 
 	Start()
 	CloseGracefully()
@@ -27,6 +28,7 @@ type Manager struct {
 	id               state.NodeId
 	lastElectionTime time.Time
 	nodes            []client.NodeClient
+	waitForCommit    *sync.Cond
 }
 
 func NewManager(id state.NodeId, nodes []client.NodeClient) StateManager {
@@ -34,13 +36,15 @@ func NewManager(id state.NodeId, nodes []client.NodeClient) StateManager {
 		log.Fatal("invalid candidate id, id > number of nodes")
 	}
 
+	mutex := new(sync.Mutex)
 	return &Manager{
-		mu:               &sync.Mutex{},
+		mu:               mutex,
 		routineGroup:     &sync.WaitGroup{},
 		state:            state.NewState(),
 		id:               id,
 		lastElectionTime: time.Now(),
 		nodes:            nodes,
+		waitForCommit:    &sync.Cond{L: mutex},
 	}
 }
 
@@ -171,6 +175,8 @@ func (m *Manager) startElection() {
 // becomeLeader: not thread-safe and private
 func (m *Manager) becomeLeader() {
 	m.state.SetCurrentStatus(state.LEADER)
+	log.Printf("Reset replication status for node %d", m.id)
+	m.state.ResetReplicationStatus(len(m.nodes))
 
 	go func() {
 		m.routineGroup.Add(1)
@@ -186,7 +192,7 @@ func (m *Manager) becomeLeader() {
 		defer ticker.Stop()
 
 		for {
-			m.sendHeartbeats()
+			m.syncStateWithOtherNodes()
 			<-ticker.C
 
 			m.mu.Lock()
@@ -199,13 +205,12 @@ func (m *Manager) becomeLeader() {
 	}()
 }
 
-func (m *Manager) sendHeartbeats() {
+func (m *Manager) syncStateWithOtherNodes() {
 	// todo: optimize health check later
 	m.mu.Lock()
 	candidateId := m.id
 	savedState := *m.state
-
-	log.Printf("[current term: %d] Sending periodic heartbeats from %d", m.state.GetCurrentTerm(), candidateId)
+	log.Printf("[current term: %d] Sending periodic AppendEntries from %d", m.state.GetCurrentTerm(), candidateId)
 	m.mu.Unlock()
 
 	for id, peerNode := range m.nodes {
@@ -217,13 +222,69 @@ func (m *Manager) sendHeartbeats() {
 			m.routineGroup.Add(1)
 			defer m.routineGroup.Done()
 
-			_, peerTerm, err := peerNode.AppendEntries(candidateId, savedState)
+			success, peerTerm, err := peerNode.AppendEntries(candidateId, state.NodeId(peerInd), savedState)
 			if err == nil {
+				m.mu.Lock()
+				defer m.mu.Unlock()
 				if peerTerm > savedState.GetCurrentTerm() {
 					log.Printf("term in vote is out of date, node %d becomes follower for term %d", m.id, peerTerm)
 					m.becomeFollower(peerTerm)
 					return
 				}
+
+				peerId := state.NodeId(peerInd)
+				nextIndex := savedState.GetNextIndexForNode(peerId)
+				delta := len(savedState.GetNewLog(peerId))
+				if delta > 0 {
+					log.Printf("[current term: %d] Leader has %d new message(s) for peer %d", savedState.GetCurrentTerm(), delta, peerId)
+				} else {
+					log.Printf("[current term: %d] Periodic healthcheck for peer %d", savedState.GetCurrentTerm(), peerId)
+				}
+
+				if m.state.GetCurrentStatus() == state.LEADER && peerTerm == savedState.GetCurrentTerm() {
+					if success {
+						// If successful: update nextIndex and matchIndex for follower
+						nextIndexAfterReplication := int(nextIndex) + delta
+						m.state.SetNextIndexForNode(peerId, nextIndexAfterReplication)
+						m.state.SetMatchIndexForNode(peerId, nextIndexAfterReplication-1)
+
+						// If there exists an N such that N > commitIndex, a majority
+						// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
+						// set commitIndex = N
+						savedCommitIndex := m.state.GetCommitIndex()
+						for commitInd := m.state.GetCommitIndex() + 1; commitInd <= m.state.GetLastLogIndex(); commitInd++ {
+							matchCount := 1
+							// check all nodes
+							for nodeId := range m.nodes {
+								if nodeId == int(candidateId) {
+									continue
+								}
+
+								if m.state.GetMatchIndexForNode(state.NodeId(nodeId)) >= commitInd {
+									matchCount++
+								}
+							}
+
+							// check majority
+							if matchCount*2 > len(m.nodes)+1 {
+								log.Printf("Majority for log %d, commiting locally...", commitInd)
+								m.state.SetCommitIndex(commitInd)
+							}
+						}
+
+						if m.state.GetCommitIndex() != savedCommitIndex {
+							// notify clients about commit
+							m.waitForCommit.Broadcast()
+						}
+
+					} else {
+						// If AppendEntries fails because of log inconsistency:
+						// decrement nextIndex and retry
+						m.state.SetNextIndexForNode(peerId, int(nextIndex)-1)
+						log.Printf("AppendEntries !success from %d to %d. Retry later", peerId, m.id)
+					}
+				}
+
 			} else {
 				log.Printf("error during call of peer node %d to ping: %v", peerInd, err)
 			}
@@ -234,10 +295,13 @@ func (m *Manager) sendHeartbeats() {
 // becomeFollower: not thread-safe and private
 func (m *Manager) becomeFollower(term state.Term) {
 	log.Printf("Becoming follower for term: %v", term)
+
 	m.state.SetCurrentTerm(term)
 	m.state.SetCurrentStatus(state.FOLLOWER)
 	m.state.SetVotedFor(nil) // unset vote for current term
 	m.lastElectionTime = time.Now()
+
+	m.waitForCommit.Broadcast() // unblock all waiters for commit
 
 	go m.runElectionTimer()
 }
@@ -298,10 +362,32 @@ func (m *Manager) AppendEntries(leaderTerm state.Term, leaderId state.NodeId) (b
 	return responseSuccess, responseTerm
 }
 
+func (m *Manager) AppendEntry(command state.Command) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state.GetCurrentStatus() == state.LEADER {
+		// append entry to local log
+		indexToCommit := m.state.Submit(command)
+		savedTerm := m.state.GetCurrentTerm()
+
+		for indexToCommit > m.state.GetCommitIndex() && m.state.GetCurrentStatus() == state.LEADER {
+			// respond after entry applied to state machine
+			m.waitForCommit.Wait()
+		}
+
+		// todo: double-check condition
+		return m.state.GetCurrentStatus() == state.LEADER && m.state.GetTermOfLog(indexToCommit) == savedTerm
+	}
+
+	return false
+}
+
 func (m *Manager) CloseGracefully() {
 	m.mu.Lock()
 	// stop heartbeats and elections
 	m.state.SetCurrentStatus(state.DEAD)
+	m.waitForCommit.Broadcast() // unblock all waiters for commit
 	m.mu.Unlock()
 	// wait for all goroutines to finish
 	log.Print("Gracefully closing all goroutines...\n")

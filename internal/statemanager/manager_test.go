@@ -3,6 +3,7 @@ package statemanager
 import (
 	"basic-raft/internal/client"
 	"basic-raft/internal/state"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sync"
 	"testing"
@@ -23,7 +24,7 @@ func (c *NodeClientMock) RequestVote(_ state.NodeId, state state.State) (bool, s
 	return c.returnValue, termToReturn, nil
 }
 
-func (c *NodeClientMock) AppendEntries(_ state.NodeId, state state.State) (bool, state.Term, error) {
+func (c *NodeClientMock) AppendEntries(_ state.NodeId, _ state.NodeId, state state.State) (bool, state.Term, error) {
 	termToReturn := state.GetCurrentTerm()
 	if c.term != nil {
 		termToReturn = *c.term
@@ -36,13 +37,15 @@ func NewTestManager(t *testing.T, nodes []client.NodeClient) *Manager {
 	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "10")
 	t.Setenv("HEARTBEAT_PERIOD_MILLISECONDS", "5")
 
+	mutex := &sync.Mutex{}
 	return &Manager{
-		mu:               &sync.Mutex{},
+		mu:               mutex,
 		routineGroup:     &sync.WaitGroup{},
 		state:            state.NewState(),
 		id:               0,
 		lastElectionTime: time.Now(),
 		nodes:            nodes,
+		waitForCommit:    &sync.Cond{L: mutex},
 	}
 }
 
@@ -291,7 +294,7 @@ func TestNodeBecomesFollowerIfHeartbeatResponseTermIsBigger(t *testing.T) {
 	manager.state.SetCurrentTerm(initialTerm)
 
 	// WHEN
-	manager.sendHeartbeats()
+	manager.syncStateWithOtherNodes()
 	time.Sleep(time.Millisecond * 100)
 
 	// THEN
@@ -353,4 +356,45 @@ func TestCandidateBecomesFollowerIfReceivesHeartbeatFromNewLeader(t *testing.T) 
 	require.Equal(t, manager.state.GetCurrentStatus(), state.FOLLOWER)
 	require.Equal(t, manager.state.GetVotedFor(), expectedVote)
 	require.Equal(t, manager.state.GetCurrentTerm(), initialTerm)
+}
+
+func TestAppendEntryWaitLoopIsTerminatedIfNodeDead(t *testing.T) {
+	// GIVEN
+	manager := NewTestManagerDefault(t)
+	manager.state.SetCurrentStatus(state.LEADER)
+
+	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "100000") // long timeout to prevent another election
+
+	var wg sync.WaitGroup
+
+	// WHEN
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			manager.AppendEntry("test")
+		}()
+	}
+	manager.CloseGracefully() // terminate
+	wg.Wait()
+
+	// THEN
+	require.Equal(t, manager.state.GetCurrentStatus(), state.DEAD)
+}
+
+func TestAppendEntryReturnsSuccessIfWeManagedToReplicateMessage(t *testing.T) {
+	// GIVEN
+	mockClient := &NodeClientMock{returnValue: true} // emulate success on AppendEntries
+	manager := NewTestManager(t, []client.NodeClient{mockClient, mockClient})
+	defer manager.CloseGracefully()
+	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "100000") // long timeout to prevent another election
+
+	// WHEN
+	manager.becomeLeader() // replicate message on background
+	success := manager.AppendEntry("test")
+
+	//  THEN
+	assert.True(t, success)
+	assert.Equal(t, len(manager.state.GetCommittedLog()), 1)
 }

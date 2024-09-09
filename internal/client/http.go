@@ -16,7 +16,7 @@ import (
 
 type NodeClient interface {
 	RequestVote(candidateId state.NodeId, state state.State) (bool, state.Term, error)
-	AppendEntries(leaderId state.NodeId, state state.State) (bool, state.Term, error)
+	AppendEntries(leaderId state.NodeId, peerId state.NodeId, s state.State) (bool, state.Term, error)
 }
 
 type httpClient struct {
@@ -33,7 +33,7 @@ func (c *httpClient) RequestVote(candidateId state.NodeId, s state.State) (bool,
 		return false, 0, err
 	}
 
-	resp, err := c.client.Post(c.addr+"/api/v1/vote", "application/json", bytes.NewReader(reqBytes))
+	resp, err := c.client.Post(c.addr+"/api/v1/internal/vote", "application/json", bytes.NewReader(reqBytes))
 	if err != nil {
 		log.Printf("error during vote request to %s: %v", c.addr, err)
 		return false, 0, err
@@ -62,8 +62,8 @@ func (c *httpClient) RequestVote(candidateId state.NodeId, s state.State) (bool,
 	return voteResponse.VoteGranted, state.Term(voteResponse.Term), nil
 }
 
-func (c *httpClient) AppendEntries(leaderId state.NodeId, s state.State) (bool, state.Term, error) {
-	req := message.NewAppendEntriesRequest(uint64(leaderId), s)
+func (c *httpClient) AppendEntries(leaderId state.NodeId, peerId state.NodeId, s state.State) (bool, state.Term, error) {
+	req := message.NewAppendEntriesRequest(uint64(leaderId), peerId, s)
 
 	reqBytes, err := json.Marshal(&req)
 	if err != nil {
@@ -71,7 +71,7 @@ func (c *httpClient) AppendEntries(leaderId state.NodeId, s state.State) (bool, 
 		return false, 0, err
 	}
 
-	resp, err := c.client.Post(c.addr+"/api/v1/append", "application/json", bytes.NewReader(reqBytes))
+	resp, err := c.client.Post(c.addr+"/api/v1/internal/append", "application/json", bytes.NewReader(reqBytes))
 	if err != nil {
 		log.Printf("error during append request to %s: %v", c.addr, err)
 		return false, 0, err

@@ -16,19 +16,20 @@ type VoteResponse struct {
 
 func NewVoteRequest(candidateId uint64, s state.State) *VoteRequest {
 	return &VoteRequest{
-		Term:        uint64(s.GetCurrentTerm()),
-		CandidateId: candidateId,
-		// todo: add more
+		Term:         uint64(s.GetCurrentTerm()),
+		CandidateId:  candidateId,
+		LastLogIndex: s.GetLastLogIndex(),
+		LastLogTerm:  uint64(s.GetLastLogTerm()),
 	}
 }
 
 type AppendEntriesRequest struct {
-	Term         uint64           `json:"term"`
-	LeaderId     uint64           `json:"leader_id"`
-	PrevLogIndex uint64           `json:"prev_log_index"`
-	PrevLogTerm  uint64           `json:"prev_log_term"`
-	LeaderCommit uint64           `json:"leader_commit"`
-	Entries      []state.LogEntry `json:"entries"`
+	Term         uint64     `json:"term"`
+	LeaderId     uint64     `json:"leader_id"`
+	PrevLogIndex uint64     `json:"prev_log_index"`
+	PrevLogTerm  uint64     `json:"prev_log_term"`
+	LeaderCommit uint64     `json:"leader_commit"`
+	Entries      []LogEntry `json:"entries"`
 }
 
 type AppendEntriesResponse struct {
@@ -36,11 +37,30 @@ type AppendEntriesResponse struct {
 	Success bool   `json:"success"`
 }
 
-func NewAppendEntriesRequest(leaderId uint64, s state.State) *AppendEntriesRequest {
-	return &AppendEntriesRequest{
-		Term:     uint64(s.GetCurrentTerm()),
-		LeaderId: leaderId,
-		Entries:  make([]state.LogEntry, 0), // empty if healthcheck
-		// todo: add more
+type LogEntry struct {
+	Term    uint64 `json:"term"`
+	Command string `json:"command"`
+}
+
+func NewAppendEntriesRequest(leaderId uint64, peerId state.NodeId, s state.State) *AppendEntriesRequest {
+	entries := make([]LogEntry, 0)
+	for _, element := range s.GetNewLog(peerId) {
+		entries = append(entries, LogEntry{
+			Term:    uint64(element.Term),
+			Command: string(element.Command),
+		})
 	}
+
+	return &AppendEntriesRequest{
+		Term:         uint64(s.GetCurrentTerm()),
+		LeaderId:     leaderId,
+		LeaderCommit: s.GetCommitIndex(),
+		Entries:      entries,
+		PrevLogIndex: s.GetPrevLogIndex(peerId),
+		PrevLogTerm:  uint64(s.GetPrevLogTerm(peerId)),
+	}
+}
+
+type ClientAppendEntryRequest struct {
+	Command string `json:"command"`
 }
