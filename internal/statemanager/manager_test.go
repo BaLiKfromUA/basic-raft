@@ -398,3 +398,28 @@ func TestAppendEntryReturnsSuccessIfWeManagedToReplicateMessage(t *testing.T) {
 	assert.True(t, success)
 	assert.Equal(t, len(manager.state.GetCommittedLog()), 1)
 }
+
+func TestAppendEntryWaitLoopIsTerminatedAfterSuccessfulReplication(t *testing.T) {
+	// GIVEN
+	mockClient := &NodeClientMock{returnValue: true} // emulate success on AppendEntries
+	manager := NewTestManager(t, []client.NodeClient{mockClient, mockClient})
+	defer manager.CloseGracefully()
+	t.Setenv("ELECTION_TIMEOUT_MILLISECONDS", "100000") // long timeout to prevent another election
+
+	var wg sync.WaitGroup
+
+	// WHEN
+	manager.becomeLeader() // replicate message on background
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			manager.AppendEntry("test")
+		}()
+	}
+	wg.Wait()
+
+	// THEN
+	assert.Equal(t, len(manager.state.GetCommittedLog()), 5)
+}
