@@ -96,7 +96,7 @@ func TestLeaderBecomesFollowerWhenReceivesVoteWithBiggerTerm(t *testing.T) {
 	newLeaderId := state.NodeId(2)
 
 	// WHEN
-	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId)
+	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId, 0, 0)
 
 	// THEN
 	// check call results
@@ -120,7 +120,7 @@ func TestFollowerGrantsVoteIfNoVotedFor(t *testing.T) {
 	newLeaderId := state.NodeId(2)
 
 	// WHEN
-	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId)
+	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId, 0, 0)
 
 	// THEN
 	// check call results
@@ -145,7 +145,7 @@ func TestFollowerDoesntGrantVoteIfAlreadyVoted(t *testing.T) {
 	newLeaderId := state.NodeId(2)
 
 	// WHEN
-	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId)
+	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId, 0, 0)
 
 	// THEN
 	// check call results
@@ -171,7 +171,7 @@ func TestFollowerDoesntGrantVoteIfNewTermIsOutdated(t *testing.T) {
 	newLeaderId := state.NodeId(2)
 
 	// WHEN
-	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId)
+	voteGranted, currentTerm := manager.GrantVote(newTerm, newLeaderId, 0, 9)
 
 	// THEN
 	// check call results
@@ -277,6 +277,7 @@ func TestNodeBecomesFollowerIfVoteResponseTermIsBigger(t *testing.T) {
 }
 
 func TestNodeBecomesFollowerIfHeartbeatResponseTermIsBigger(t *testing.T) {
+	// GIVEN
 	expectedTerm := state.Term(2)
 	var expectedVote *state.NodeId = nil
 
@@ -320,7 +321,7 @@ func TestLeaderBecomesFollowerIfReceivesHeartbeatWithNewerTerm(t *testing.T) {
 	manager.state.SetCurrentTerm(initialTerm)
 
 	// WHEN
-	success, term := manager.AppendEntries(expectedTerm, 1)
+	success, term := manager.AppendEntries(expectedTerm, 1, 0, 0, 0, []state.LogEntry{})
 
 	// THEN
 	require.Equal(t, true, success)
@@ -347,7 +348,7 @@ func TestCandidateBecomesFollowerIfReceivesHeartbeatFromNewLeader(t *testing.T) 
 	manager.state.SetCurrentTerm(initialTerm)
 
 	// WHEN
-	success, term := manager.AppendEntries(initialTerm, 1)
+	success, term := manager.AppendEntries(initialTerm, 1, 0, 0, 0, []state.LogEntry{})
 
 	// THEN
 	require.Equal(t, true, success)
@@ -409,7 +410,7 @@ func TestAppendEntryWaitLoopIsTerminatedAfterSuccessfulReplication(t *testing.T)
 	var wg sync.WaitGroup
 
 	// WHEN
-	manager.becomeLeader() // replicate message on background
+	manager.becomeLeader() // replicate messages on background
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func() {
@@ -422,4 +423,118 @@ func TestAppendEntryWaitLoopIsTerminatedAfterSuccessfulReplication(t *testing.T)
 
 	// THEN
 	assert.Equal(t, len(manager.state.GetCommittedLog()), 5)
+}
+
+func TestAppendEntriesNewEntriesToEmptyList(t *testing.T) {
+	// GIVEN
+	manager := NewTestManagerDefault(t)
+	defer manager.CloseGracefully()
+	// manager list is empty, mode is follower, term is 0
+	expectedMessages := []state.LogEntry{
+		{
+			Term:    0,
+			Command: "test 0",
+		},
+		{
+			Term:    1,
+			Command: "test 1",
+		},
+	}
+
+	// WHEN
+	successSubmit, _ := manager.AppendEntries(1, 42, 0, 0, 0, expectedMessages)
+	successCommit, _ := manager.AppendEntries(1, 42, 2, 1, 2, []state.LogEntry{})
+
+	// THEN
+	require.True(t, successSubmit)
+	require.True(t, successCommit)
+
+	require.Equal(t, manager.state.GetCurrentTerm(), state.Term(1))
+	require.Equal(t, manager.state.GetCommittedLog(), expectedMessages)
+}
+
+func TestPublicLogIsEmptyIfNoCommits(t *testing.T) {
+	// GIVEN
+	manager := NewTestManagerDefault(t)
+	defer manager.CloseGracefully()
+	// manager list is empty, mode is follower, term is 0
+	input := []state.LogEntry{
+		{
+			Term:    0,
+			Command: "test 0",
+		},
+		{
+			Term:    1,
+			Command: "test 1",
+		},
+	}
+
+	// WHEN
+	successSubmit, _ := manager.AppendEntries(1, 42, 0, 0, 0, input)
+
+	// THEN
+	require.True(t, successSubmit)
+
+	require.Equal(t, manager.state.GetCurrentTerm(), state.Term(1))
+	require.Empty(t, manager.state.GetCommittedLog())
+}
+
+func TestAppendEntriesIsRejectedIfPrevLogTermIsUnexpected(t *testing.T) {
+	// GIVEN
+	manager := NewTestManagerDefault(t)
+	defer manager.CloseGracefully()
+
+	manager.state.Submit("test")
+
+	input := []state.LogEntry{
+		{
+			Term:    2,
+			Command: "test 1",
+		},
+	}
+
+	// WHEN
+	successSubmit, _ := manager.AppendEntries(1, 42, 1, 1, 0, input)
+
+	// THEN
+	require.False(t, successSubmit)
+}
+
+func TestAppendEntriesResolvesConflictCorrectly(t *testing.T) {
+	// GIVEN
+	manager := NewTestManagerDefault(t)
+	defer manager.CloseGracefully()
+
+	manager.state.Submit("test")
+	manager.state.Submit("override me")
+
+	input := []state.LogEntry{
+		{
+			Term:    2,
+			Command: "test 1",
+		},
+	}
+
+	expectedMessages := []state.LogEntry{
+		{
+			Term:    0,
+			Command: "test",
+		},
+		{
+			Term:    2,
+			Command: "test 1",
+		},
+	}
+
+	// WHEN
+	successSubmit, _ := manager.AppendEntries(2, 42, 1, 0, 0, input)
+	successCommit, _ := manager.AppendEntries(2, 42, 2, 2, 2, []state.LogEntry{})
+
+	// THEN
+	require.True(t, successSubmit)
+	require.True(t, successCommit)
+
+	require.Equal(t, manager.state.GetCurrentTerm(), state.Term(2))
+	require.Equal(t, manager.state.GetCommittedLog(), expectedMessages)
+
 }

@@ -91,7 +91,7 @@ func (s *State) GetCommittedLog() []LogEntry {
 		return make([]LogEntry, 0)
 	}
 
-	return s.log[0:s.commitIndex] // todo: double-check and test
+	return s.log[0:s.commitIndex]
 }
 
 func (s *State) SetCommitIndex(commitIndex uint64) {
@@ -103,7 +103,7 @@ func (s *State) GetCommitIndex() uint64 {
 }
 
 func (s *State) GetTermOfLog(index uint64) Term {
-	if int(index) >= len(s.log) {
+	if index <= 0 || int(index) > len(s.log) {
 		return 0
 	}
 
@@ -151,4 +151,9 @@ func (s *State) GetMatchIndexForNode(id NodeId) uint64 {
 
 func (s *State) GetNextIndexForNode(id NodeId) uint64 {
 	return s.nextIndex[id]
+}
+
+func (s *State) AppendStartingFromIndex(ind int, entries []LogEntry) {
+	logInsertIndex := max(ind-1, 0)
+	s.log = append(s.log[:logInsertIndex], entries...)
 }

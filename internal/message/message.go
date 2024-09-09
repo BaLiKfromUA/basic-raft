@@ -60,7 +60,3 @@ func NewAppendEntriesRequest(leaderId uint64, peerId state.NodeId, s state.State
 		PrevLogTerm:  uint64(s.GetPrevLogTerm(peerId)),
 	}
 }
-
-type ClientAppendEntryRequest struct {
-	Command string `json:"command"`
-}

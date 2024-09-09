@@ -13,8 +13,8 @@ import (
 )
 
 type StateManager interface {
-	GrantVote(proposedTerm state.Term, candidateId state.NodeId) (bool, state.Term)
-	AppendEntries(leaderTerm state.Term, leaderId state.NodeId) (bool, state.Term)
+	GrantVote(proposedTerm state.Term, candidateId state.NodeId, lastLogIndex uint64, lastLogTerm state.Term) (bool, state.Term)
+	AppendEntries(leaderTerm state.Term, leaderId state.NodeId, prevLogIndex uint64, prevLogTerm state.Term, leaderCommit uint64, newEntries []state.LogEntry) (bool, state.Term)
 	AppendEntry(command state.Command) bool
 
 	Start()
@@ -306,7 +306,7 @@ func (m *Manager) becomeFollower(term state.Term) {
 	go m.runElectionTimer()
 }
 
-func (m *Manager) GrantVote(proposedTerm state.Term, candidateId state.NodeId) (bool, state.Term) {
+func (m *Manager) GrantVote(proposedTerm state.Term, candidateId state.NodeId, lastLogIndex uint64, lastLogTerm state.Term) (bool, state.Term) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.state.GetCurrentStatus() == state.DEAD {
@@ -322,7 +322,9 @@ func (m *Manager) GrantVote(proposedTerm state.Term, candidateId state.NodeId) (
 
 	var acceptedVote bool
 	candidateIsValid := m.state.GetVotedFor() == nil || *m.state.GetVotedFor() == candidateId
-	if proposedTerm == m.state.GetCurrentTerm() && candidateIsValid {
+	// TODO: cover logsIsValid logic with tests
+	logIsValid := lastLogTerm > m.state.GetLastLogTerm() || (lastLogTerm == m.state.GetLastLogTerm() && lastLogIndex >= m.state.GetLastLogIndex())
+	if proposedTerm == m.state.GetCurrentTerm() && candidateIsValid && logIsValid {
 		log.Printf("[current term: %v] Give a vote for %v", m.state.GetCurrentTerm(), candidateId)
 		acceptedVote = true
 		m.state.SetVotedFor(&candidateId)
@@ -335,7 +337,7 @@ func (m *Manager) GrantVote(proposedTerm state.Term, candidateId state.NodeId) (
 	return acceptedVote, m.state.GetCurrentTerm()
 }
 
-func (m *Manager) AppendEntries(leaderTerm state.Term, leaderId state.NodeId) (bool, state.Term) {
+func (m *Manager) AppendEntries(leaderTerm state.Term, leaderId state.NodeId, prevLogIndex uint64, prevLogTerm state.Term, leaderCommit uint64, newEntries []state.LogEntry) (bool, state.Term) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.state.GetCurrentStatus() == state.DEAD {
@@ -355,7 +357,46 @@ func (m *Manager) AppendEntries(leaderTerm state.Term, leaderId state.NodeId) (b
 			m.becomeFollower(leaderTerm)
 		}
 		m.lastElectionTime = time.Now()
-		responseSuccess = true
+
+		if prevLogIndex == 0 ||
+			(prevLogIndex <= m.state.GetLastLogIndex() && prevLogTerm == m.state.GetTermOfLog(prevLogIndex)) {
+			responseSuccess = true
+
+			logInsertIndex := prevLogIndex + 1
+			newEntriesIndex := 0
+
+			// todo: cover this loop with tests
+			for {
+				if logInsertIndex > m.state.GetLastLogIndex() || newEntriesIndex >= len(newEntries) {
+					break
+				}
+
+				if m.state.GetTermOfLog(logInsertIndex) != newEntries[newEntriesIndex].Term {
+					break
+				}
+
+				logInsertIndex++
+				newEntriesIndex++
+			}
+
+			// At the end of the loop above:
+			// - logInsertIndex points at the end of the log, or an index where the
+			//   term mismatches with an entry from the leader
+			// - newEntriesIndex points at the end of Entries, or an index where the
+			//   term mismatches with the corresponding log entry
+			if newEntriesIndex < len(newEntries) {
+				log.Printf("Inserting %v starting from index %d", newEntries[newEntriesIndex:], logInsertIndex)
+				m.state.AppendStartingFromIndex(int(logInsertIndex), newEntries[newEntriesIndex:])
+			}
+
+			// If leaderCommit > commitIndex, set commitIndex =
+			// min(leaderCommit, index of last new entry)
+			if leaderCommit > m.state.GetCommitIndex() {
+				m.state.SetCommitIndex(min(leaderCommit, m.state.GetLastLogIndex()))
+				log.Printf("Committed log now: %v", m.state.GetCommittedLog())
+			}
+		}
+
 	}
 
 	responseTerm := m.state.GetCurrentTerm()

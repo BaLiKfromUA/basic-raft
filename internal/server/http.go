@@ -21,8 +21,12 @@ type Node struct {
 	state statemanager.StateManager
 }
 
+type ClientAppendEntryRequest struct {
+	Command string `json:"command"`
+}
+
 func (s *Node) AppendEntryHandler(w http.ResponseWriter, r *http.Request) {
-	var appendEntryRequest message.ClientAppendEntryRequest
+	var appendEntryRequest ClientAppendEntryRequest
 
 	err := json.NewDecoder(r.Body).Decode(&appendEntryRequest)
 	if err != nil {
@@ -50,8 +54,22 @@ func (s *Node) AppendEntriesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// todo: handle all fields from request
-	success, currentTerm := s.state.AppendEntries(state.Term(appendEntriesRequest.Term), state.NodeId(appendEntriesRequest.LeaderId))
+	var newEntries []state.LogEntry
+	for _, entry := range appendEntriesRequest.Entries {
+		newEntries = append(newEntries, state.LogEntry{
+			Term:    state.Term(entry.Term),
+			Command: state.Command(entry.Command),
+		})
+	}
+
+	success, currentTerm := s.state.AppendEntries(
+		state.Term(appendEntriesRequest.Term),
+		state.NodeId(appendEntriesRequest.LeaderId),
+		appendEntriesRequest.PrevLogIndex,
+		state.Term(appendEntriesRequest.Term),
+		appendEntriesRequest.LeaderCommit,
+		newEntries)
+
 	response := message.AppendEntriesResponse{
 		Success: success,
 		Term:    uint64(currentTerm),
@@ -72,8 +90,12 @@ func (s *Node) RequestVoteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// todo: handle all fields from request
-	voteGranted, currentTerm := s.state.GrantVote(state.Term(voteMessage.Term), state.NodeId(voteMessage.CandidateId))
+	voteGranted, currentTerm := s.state.GrantVote(
+		state.Term(voteMessage.Term),
+		state.NodeId(voteMessage.CandidateId),
+		voteMessage.LastLogIndex,
+		state.Term(voteMessage.LastLogTerm),
+	)
 	response := message.VoteResponse{
 		Term:        uint64(currentTerm),
 		VoteGranted: voteGranted,
