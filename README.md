@@ -60,7 +60,8 @@ Implementation of Raft algorithm made with Go for fun and learning
 
 ```bash
 > docker exec -it deployment_node1_1 curl -X POST http://localhost:8000/api/v1/append -H "Content-Type: application/json"  -d '{"command":"msg5"}' --max-time 2
-curl: (28) Operation timed out after 2001 milliseconds with 0 bytes received
+curl: (28) Operation timed out after 2001 milliseconds with 0 bytes received 
+^^^ this means that message is not committed
 > docker exec -it deployment_node1_1 curl http://localhost:8000/api/v1/state
 {"state":"LEADER","log":[{"term":1,"command":"msg1"},{"term":1,"command":"msg2"}]}
 ```
