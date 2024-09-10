@@ -17,6 +17,8 @@ type StateManager interface {
 	AppendEntries(leaderTerm state.Term, leaderId state.NodeId, prevLogIndex uint64, prevLogTerm state.Term, leaderCommit uint64, newEntries []state.LogEntry) (bool, state.Term)
 	AppendEntry(command state.Command) bool
 
+	GetLogAndStatus() ([]state.LogEntry, state.NodeStatus)
+
 	Start()
 	CloseGracefully()
 }
@@ -154,7 +156,7 @@ func (m *Manager) startElection() {
 					log.Printf("[current term: %v] Candidate %d receives vote from node %d", voteTerm, candidateId, peerInd)
 
 					// received the majority of votes --> (N + 1) // 2
-					if votesReceived*2 > len(m.nodes)+1 {
+					if votesReceived*2 >= len(m.nodes)+1 {
 						log.Printf("[current term: %v] Candidate %d won an election and becomes leader", voteTerm, candidateId)
 						m.becomeLeader()
 					}
@@ -227,7 +229,7 @@ func (m *Manager) syncStateWithOtherNodes() {
 				m.mu.Lock()
 				defer m.mu.Unlock()
 				if peerTerm > savedState.GetCurrentTerm() {
-					log.Printf("term in vote is out of date, node %d becomes follower for term %d", m.id, peerTerm)
+					log.Printf("term in append response is out of date, node %d becomes follower for term %d", m.id, peerTerm)
 					m.becomeFollower(peerTerm)
 					return
 				}
@@ -266,7 +268,7 @@ func (m *Manager) syncStateWithOtherNodes() {
 							}
 
 							// check majority
-							if matchCount*2 > len(m.nodes)+1 {
+							if matchCount*2 >= len(m.nodes)+1 {
 								log.Printf("Majority for log %d, commiting locally...", commitInd)
 								m.state.SetCommitIndex(commitInd)
 							}
@@ -344,7 +346,7 @@ func (m *Manager) AppendEntries(leaderTerm state.Term, leaderId state.NodeId, pr
 		return false, 0
 	}
 
-	log.Printf("[current term: %d] Trial to append entries from node %v", m.state.GetCurrentTerm(), leaderId)
+	log.Printf("[current term: %d] Trial to append entries from node %v for term %d", m.state.GetCurrentTerm(), leaderId, leaderTerm)
 
 	if leaderTerm > m.state.GetCurrentTerm() {
 		log.Printf("current term %d is out of date, new term: %v", m.state.GetCurrentTerm(), leaderTerm)
@@ -395,8 +397,9 @@ func (m *Manager) AppendEntries(leaderTerm state.Term, leaderId state.NodeId, pr
 				m.state.SetCommitIndex(min(leaderCommit, m.state.GetLastLogIndex()))
 				log.Printf("Committed log now: %v", m.state.GetCommittedLog())
 			}
+		} else {
+			log.Printf("Rejected append entries from node %v during term %v. [PrevLogIndex: %d, PrevLogTerm: %d, LocalLastLogIndex: %d, LocalPrevLogTerm: %d]", leaderId, leaderTerm, prevLogIndex, prevLogTerm, m.state.GetLastLogIndex(), m.state.GetTermOfLog(prevLogIndex))
 		}
-
 	}
 
 	responseTerm := m.state.GetCurrentTerm()
@@ -422,6 +425,13 @@ func (m *Manager) AppendEntry(command state.Command) bool {
 	}
 
 	return false
+}
+
+func (m *Manager) GetLogAndStatus() ([]state.LogEntry, state.NodeStatus) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.state.GetCommittedLog(), m.state.GetCurrentStatus()
 }
 
 func (m *Manager) CloseGracefully() {

@@ -25,6 +25,33 @@ type ClientAppendEntryRequest struct {
 	Command string `json:"command"`
 }
 
+type GetNodeStateResponse struct {
+	State string             `json:"state"`
+	Log   []message.LogEntry `json:"log"`
+}
+
+func (s *Node) GetNodeStateHandler(w http.ResponseWriter, _ *http.Request) {
+	logs, status := s.state.GetLogAndStatus()
+
+	reqLog := make([]message.LogEntry, len(logs))
+	for i, l := range logs {
+		reqLog[i] = message.LogEntry{
+			Term:    uint64(l.Term),
+			Command: string(l.Command),
+		}
+	}
+
+	response := GetNodeStateResponse{
+		State: string(status),
+		Log:   reqLog,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	rawResponse, _ := json.Marshal(response)
+	_, _ = w.Write(rawResponse)
+}
+
 func (s *Node) AppendEntryHandler(w http.ResponseWriter, r *http.Request) {
 	var appendEntryRequest ClientAppendEntryRequest
 
@@ -111,6 +138,8 @@ func createRouter(handler *Node) *mux.Router {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/api/v1/append", handler.AppendEntryHandler).Methods("POST")
+	r.HandleFunc("/api/v1/state", handler.GetNodeStateHandler).Methods("GET")
+
 	r.HandleFunc("/api/v1/internal/append", handler.AppendEntriesHandler).Methods(http.MethodPost)
 	r.HandleFunc("/api/v1/internal/vote", handler.RequestVoteHandler).Methods(http.MethodPost)
 

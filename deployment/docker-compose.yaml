@@ -4,9 +4,9 @@ x-env:
   environment: &env
     NODES_URLS: "http://node1:8000,http://node2:8000,http://node3:8000"
     NODE_PORT: "8000"
-    REQUEST_TIMEOUT_MILLISECONDS: "100"
-    HEARTBEAT_PERIOD_MILLISECONDS: "50"
-    ELECTION_TIMEOUT_MILLISECONDS: "150"
+    REQUEST_TIMEOUT_MILLISECONDS: "150"
+    HEARTBEAT_PERIOD_MILLISECONDS: "1000"
+    ELECTION_TIMEOUT_MILLISECONDS: "5000"
 
 services:
   node1:
@@ -14,7 +14,11 @@ services:
       context: ../
       dockerfile: build/Dockerfile
     networks:
-      - isolated_network
+      isolated_network:
+        aliases:
+          - node1
+    ports:
+      - "80:8000"
     environment:
       <<: *env
       NODE_INDEX: "0"
@@ -24,7 +28,11 @@ services:
       context: ../
       dockerfile: build/Dockerfile
     networks:
-      - isolated_network
+      isolated_network:
+        aliases:
+          - node2
+    ports:
+      - "81:8000"
     environment:
       <<: *env
       NODE_INDEX: "1"
@@ -34,7 +42,11 @@ services:
       context: ../
       dockerfile: build/Dockerfile
     networks:
-      - isolated_network
+      isolated_network:
+        aliases:
+          - node3
+    ports:
+      - "82:8000"
     environment:
       <<: *env
       NODE_INDEX: "2"
