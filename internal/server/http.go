@@ -26,24 +26,36 @@ type ClientAppendEntryRequest struct {
 }
 
 type GetNodeStateResponse struct {
-	State string             `json:"state"`
-	Log   []message.LogEntry `json:"log"`
+	Term        uint64             `json:"term"`
+	State       string             `json:"state"`
+	Log         []message.LogEntry `json:"log"`
+	Uncommitted []message.LogEntry `json:"uncommitted"`
 }
 
 func (s *Node) GetNodeStateHandler(w http.ResponseWriter, _ *http.Request) {
-	logs, status := s.state.GetLogAndStatus()
+	term, logs, status, uncommited := s.state.GetState()
 
-	reqLog := make([]message.LogEntry, len(logs))
+	respLog := make([]message.LogEntry, len(logs))
 	for i, l := range logs {
-		reqLog[i] = message.LogEntry{
+		respLog[i] = message.LogEntry{
+			Term:    uint64(l.Term),
+			Command: string(l.Command),
+		}
+	}
+
+	respUncommitted := make([]message.LogEntry, len(uncommited))
+	for i, l := range uncommited {
+		respUncommitted[i] = message.LogEntry{
 			Term:    uint64(l.Term),
 			Command: string(l.Command),
 		}
 	}
 
 	response := GetNodeStateResponse{
-		State: string(status),
-		Log:   reqLog,
+		Term:        uint64(term),
+		State:       string(status),
+		Log:         respLog,
+		Uncommitted: respUncommitted,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -157,3 +157,11 @@ func (s *State) AppendStartingFromIndex(ind int, entries []LogEntry) {
 	logInsertIndex := max(ind-1, 0)
 	s.log = append(s.log[:logInsertIndex], entries...)
 }
+
+func (s *State) GetUncommittedLog() []LogEntry {
+	if s.commitIndex >= uint64(len(s.log)) {
+		return make([]LogEntry, 0)
+	}
+
+	return s.log[s.commitIndex:]
+}

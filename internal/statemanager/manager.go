@@ -17,7 +17,7 @@ type StateManager interface {
 	AppendEntries(leaderTerm state.Term, leaderId state.NodeId, prevLogIndex uint64, prevLogTerm state.Term, leaderCommit uint64, newEntries []state.LogEntry) (bool, state.Term)
 	AppendEntry(command state.Command) bool
 
-	GetLogAndStatus() ([]state.LogEntry, state.NodeStatus)
+	GetState() (state.Term, []state.LogEntry, state.NodeStatus, []state.LogEntry)
 
 	Start()
 	CloseGracefully()
@@ -427,11 +427,11 @@ func (m *Manager) AppendEntry(command state.Command) bool {
 	return false
 }
 
-func (m *Manager) GetLogAndStatus() ([]state.LogEntry, state.NodeStatus) {
+func (m *Manager) GetState() (state.Term, []state.LogEntry, state.NodeStatus, []state.LogEntry) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.state.GetCommittedLog(), m.state.GetCurrentStatus()
+	return m.state.GetCurrentTerm(), m.state.GetCommittedLog(), m.state.GetCurrentStatus(), m.state.GetUncommittedLog()
 }
 
 func (m *Manager) CloseGracefully() {
